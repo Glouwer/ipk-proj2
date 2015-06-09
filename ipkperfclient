@@ -1,0 +1,292 @@
+#!/usr/bin/env python2
+import socket
+import threading
+import argparse  
+import sys
+import time
+import signal
+import datetime
+
+from collections import deque
+# *********************** ZPRACOVANI PARAMETRU ************************
+
+# Trida slouzi pro zpracovani parametru
+class Parametry:
+
+    port = 0
+    size = 0
+    rate = 0
+    time = 0
+    server = ""
+    interval = 0
+
+    pocet_for = 0
+    rychlost = 0.0
+
+    # parametry a jejich implicitni hodnoty
+    def __init__(self):
+        parser = argparse.ArgumentParser(add_help=False, 
+        usage='\n CHYBA - Program je nutne spustit s nasledujicimi  parametry\n: [-p server_port] [-s packet_size] [-r packet_rate] [-t runtime] [-i interval] SERVER\n Nebyl zadan host(SERVER)'
+        )
+        # port
+        parser.add_argument(
+            '-p',
+            type=int,
+            default=5656,
+        )
+        # size    
+        parser.add_argument(
+            '-s',
+            type=int,
+            default=100,
+
+        )
+        # rate    
+        parser.add_argument(
+            '-r',
+            type=int,
+            default=10,     
+        )
+        # time
+        parser.add_argument(
+            '-t',
+            type=int,
+            default=None,    
+        )
+        # interval
+        parser.add_argument(
+            '-i',
+            type=int,
+            default=100,     
+        )
+        # SERVER
+        parser.add_argument(
+            'SERVER',
+            default=None,    
+        )
+
+        
+        args = parser.parse_args()    
+
+        # vytahnu si svoje parametry       
+        self.port =  args.__dict__["p"] #vraci true pokud byl nastaven
+        self.size =  args.__dict__["s"]   #vraci true pokud byl nastaven
+        self.rate = args.__dict__["r"]   
+        self.time = args.__dict__["t"]
+        self.interval = args.__dict__["i"]
+        self.server = args.__dict__["SERVER"] 
+        self.pokus = False
+
+        #spocitam si pomocne hodnotz
+        self.pocet_for = self.rate * self.interval
+        #pocitam rychlost posilani
+        self.rychlost = 1.0/self.rate
+
+
+# zavolam parametry
+a = Parametry()
+
+print "********** Prave byl spusten klient -tester end-to-end **********"
+
+# funkce slouzi pro odchyceni SIGINT
+def signal_handler(signal, frame):
+    a.pokus = True
+    print "\nByl ukoncen program, vypisuji odpoved"
+    sys.exit(5)
+
+# odchyceni signalu
+signal.signal(signal.SIGINT, signal_handler)
+
+# *********************** ZPRACOVANI PRIPOJENI ************************
+try:
+    mySocket = socket.socket( socket.AF_INET, socket.SOCK_DGRAM , socket. IPPROTO_UDP)
+    mySocket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    print "Podarilo se navazat spojeni"
+except:
+    print "Nepodarilo se incializovat socket"
+    sys.exit()
+
+
+# zkusim naslouchat odpoved
+try:
+    mySocket.bind((a.server,a.port + 5))
+except:
+    print "Nepodarilo se inicializovat socket pro naslouchani odpovedi"
+    sys.exit()
+
+
+# Funkce pro prijimani zprav a nasledne zpracovani 
+# - spustena jako vlakno
+def prijimani():
+    # vytvorim si frontu casu prichodu
+    outoford = 0
+    casy = deque()
+    while True:
+        cele = 0.0
+        """thread worker function"""
+        #print a.pokus
+        if a.pokus == True:
+            break
+        else:
+            # pokud mi po vice nez 1.1 sekundy neprijde packet tak koncim
+            mySocket.settimeout(1.1)
+   
+            try:
+                i = 0
+                casy = deque()
+                # podle spocitane parametru spocitam kolik packetu bych mohl prijat a na tom zalozim svuj interval
+                for i in range(a.pocet_for):
+                    try:
+                        # prijimam zpravu a ukladam si cas prichodu                      
+                        msg, addr = mySocket.recvfrom(65507)
+                        prichod = time.time()
+                    except:
+                        break
+                    
+                    # prisel mi packet, rozdelim si ho podle carky
+                    cislo_prichoziho = msg.split(',', 2 )
+
+                    # array - array je fronta ktera obsahuje databazi odeslanych packetu
+                    for word in array:
+                        # rozdelim si jednotlivy prvek fronty podle carky a dale s nim pracuju
+                        zprava = word.split(',', 5)
+                    #jakmile ho vyuziju tak mazu 
+                    array.popleft() 
+                    
+                    #pokud se cislo prichozicho packetu neshoduje s tim co sem odeslal tak zvysuju out of order
+                    if zprava[0] !=  cislo_prichoziho[0]:
+                        outoford += 1
+
+                    # spocitam rozdil od packetu ktery mi prisel odectu cas kdy byl odeslan
+                    rozdil = float(prichod) -float(zprava[2])
+                    # kvuli floatu a nepresnosti s casem mi tam obcas skocila odchylka
+                    if rozdil < 0:
+                        rozdil = abs(rozdil)
+                    # muj odecteny cas
+                    odecten = float(rozdil) * 100.0
+                    # cas si ulozim do fronty abych s nim pozdeji mohl pracovat
+                    casy.append(odecten)
+
+                    # pro spocitani prumerne velikosti sectu vsechny casy v intervalu
+                    cele += float(odecten)
+
+
+                    #print "Packet received:"
+                    #print "Containing:"
+                    #print msg
+                    pocet_odeslanych = zprava[0]
+
+                # pocitam jitter, vytvorim si pomocnou frontu
+                sub_casy = deque()
+                nejmensi_delay =  min(casy)
+                for cislo in casy:
+                    mensi = cislo - nejmensi_delay
+                    sub_casy.append(mensi)
+                jitter = max(sub_casy) * 10
+                #mazu fronty po vyuziti
+                sub_casy = None
+                casy = None              
+
+                # ****************** VYPSANI DO SOUBORU *********************
+                # pripravim si vsechny potrebne informace
+                inter = time.strftime("%Y-%m-%d-%H:%M:%S", time.gmtime(float(zprava[4])))
+
+                avg = cele/(float(cislo_prichoziho[0]) + 1.0)
+
+                #pocet packetu ktere prisly
+                pocty_prichozich = int(cislo_prichoziho[0]) + 1
+
+                #pocet odeslanzych packetu
+                pocty_odeslanych = int(pocet_odeslanych) + 1
+
+                #pocet bajtu ktere prisly
+                velikosti_prichozich = int(a.size) * pocty_prichozich
+                velikosti_odeslanych = int(a.size) * pocty_odeslanych
+
+                #pocet out of order packetu
+
+                outoford = (float(outoford) / float (pocty_prichozich)) * 100.0
+
+                vystupni_text = str(inter) + "," + str(a.interval) + "," + str(pocty_odeslanych) + "," + str(pocty_prichozich) + "," + str(velikosti_odeslanych) + "," + str(velikosti_prichozich) + "," + str(avg)[:5] + "," + str(jitter)[:5] + "," + str(outoford) +"\n"
+                try:
+                    vystup = open("pkperf-SERVERIP-SIZE-RATE", "a")
+                    vystup.write(vystupni_text)
+                    print "Vysledek zapsan"
+                    vystup.close()
+                except:
+                    print "Nepodarilo se zapsat do souboru, neni kam zapsat vysledek"
+                    sys.exit()
+            except:
+
+                break
+
+
+
+
+# ********************** HLAVNI PROCES *************************
+
+# spusteni vlakna
+m = threading.Thread(target = prijimani)
+#threads.append(m)
+m.start()
+
+
+
+# jednoducha funkce pro vyplneni velikosti packetu
+def packet(size):
+
+    data = ""
+    i = 0
+
+    for i in range(size):
+        data += "m"
+
+    obsah  = data
+    return obsah
+
+cislo_packetu = 0
+mujPack = ""
+# osetreni pro zadany timeout
+# pokud byl zadany tak si nastavim cas a prictu k nemu cas ukonceni
+if a.time != None:
+    timeout = time.time() + a.time
+# zde jiz zminovana fronta do ktere si ukladam odeslane packety pro kontrolu az prijdou
+array = deque()
+i=0
+
+
+
+# ***************** ODESILANI PACKETU *****************
+while True:
+    # casek - cas zacatku intervalu
+    casek = time.time()
+    if a.pokus ==True:
+        break
+    # opet pro spocitany interval
+    for i in range(a.pocet_for):
+        #pokud byl zadan timeout tak koncim ve chvili kdy soucasny cas je vetsi nez timeout cas
+        if a.time != None:
+            if time.time() > timeout:
+                a.pokus = True
+                break
+        # sleep pro urcovani rychlosti posilani
+        time.sleep(a.rychlost)
+        # cas pro kazdy packet
+        cas = time.time()
+        # urceni celkove velikosti packetu - zapocitavam svoje razitko
+        celkova_velikost = a.size - (len(str(cislo_packetu)) + 1)
+          
+        mujPack = packet(celkova_velikost)
+
+        datum = datetime.datetime.now().strftime("%Y-%m-%d-%H:%M:%S")
+        zpravicka = str(cislo_packetu) + "," + mujPack
+        # ukladam packet do databaze (fronta)
+        array.append(zpravicka + "," + str(cas) + "," + datum + "," + str(casek))
+        # odesilam packet
+        mySocket.sendto( zpravicka, ( a.server, a.port ) )
+        #print "Packet sent\n"
+        cislo_packetu += 1
+        i += 1
+    cislo_packetu = 0
+
+print "Dosel cas, vypisuji vysledek"
