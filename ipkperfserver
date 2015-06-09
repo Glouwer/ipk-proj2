@@ -1,0 +1,39 @@
+#!/usr/bin/env python
+import socket
+import threading
+import argparse  
+import sys
+
+#zpracovani parametru
+parser = argparse.ArgumentParser(add_help=False, 
+usage='\n Program je nutne spustit s nasledujicimi  parametry\n: -p cislo_portu nebo bez parametru'
+)
+
+parser.add_argument(
+    '-p',
+    type=int,
+    default=5656, 
+)
+
+args = parser.parse_args()    
+
+# vytahnu si svoje parametry       
+port =  args.__dict__["p"] #vraci true pokud byl nastaven
+
+
+try:
+	mySocket = socket.socket( socket.AF_INET, socket.SOCK_DGRAM , socket. IPPROTO_UDP)
+	mySocket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+	mySocket.bind(("",port))
+
+except:
+	print "Inicializace serveru se nezdarila"
+	sys.exit()
+
+while True:
+	try:
+		msg, addr = mySocket.recvfrom(65507)
+		mySocket.sendto( msg, ( "", port + 5) )
+	except:
+		print "ukoncuji server"
+		break
