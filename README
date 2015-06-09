@@ -1,1 +1,22 @@
-# ipk-proj2
+Jedna se o jednoduchy tester ktery sleduje prichody packetu. Program by mel byt funkcni - byly implementovany pozadavky dle zadani 
+
+Client byl resen tak ze bylo vytvoreno vlakno na prijimani zprav. Hlavni program se pak staral o odesilani.
+Pro omezeni velikosti packetu se do packetu ukladalo pouze razitko ciselne. Client se postaral o to, ze si
+casove razitko u daneho packetu poznacil u sebe pri odesilani a jakmile se vratil jen porovnal(odcital) prichozi
+packet s tim ktery mel u sebe ulozeny v databazi. Ukazka  - client posila packet o 15B dava mu cislo 1, do databaze
+se uklada packet s cislem 1, casove razitko, zacatek intervalu. Jakmile se packet vrati diva se do teto fronty.
+
+Server je pak jednoduchy while, ktery prijme zpravu a posle ji zpet. Zde je vytvoren novy port pro odpoved,
+aby client vedel, kde odpoved od serveru hledat.
+
+Priklady spusteni jsou prevzaty ze souboru test.sh
+
+	TEST PRO IMPLICITNI HODNOTY
+
+	./ipkperfserver 
+	./ipkperfclient "-t" 12 localhost
+
+	TEST PRO VSECHNY PARAMETRY
+
+	./ipkperfserver -p 10000 
+	./ipkperfclient -p 10000 -r 60 -i 2 -t 10 -s 145 localhost
